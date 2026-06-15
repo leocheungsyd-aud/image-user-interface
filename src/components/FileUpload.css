@@ -1,0 +1,265 @@
+.fu-body {
+  padding: 28px 32px 32px;
+}
+
+/* ── Drop zone ── */
+.fu-dropzone {
+  border: 2px dashed #d1d5db;
+  border-radius: 12px;
+  padding: 48px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  outline: none;
+  user-select: none;
+}
+
+.fu-dropzone:hover,
+.fu-dropzone:focus-visible {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.fu-dropzone--active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  transform: scale(1.01);
+}
+
+.fu-input {
+  display: none;
+}
+
+.fu-dropzone-icon {
+  width: 56px;
+  height: 56px;
+  background: #f3f4f6;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  margin-bottom: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.fu-dropzone:hover .fu-dropzone-icon,
+.fu-dropzone--active .fu-dropzone-icon {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.fu-dropzone-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.fu-dropzone-primary {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.fu-dropzone-secondary {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.fu-hint {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.fu-hint strong {
+  color: #6b7280;
+}
+
+/* ── Uploading state ── */
+.fu-uploading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 8px;
+}
+
+.fu-uploading-icon {
+  width: 56px;
+  height: 56px;
+  background: #eff6ff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2563eb;
+  margin-bottom: 4px;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.fu-uploading-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.fu-uploading-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #111827;
+  word-break: break-all;
+  text-align: center;
+}
+
+.fu-uploading-size {
+  font-size: 0.78rem;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.fu-progress-bar-track {
+  width: 100%;
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 99px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.fu-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+  border-radius: 99px;
+  transition: width 0.2s ease;
+}
+
+.fu-progress-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #2563eb;
+  margin-top: 4px;
+}
+
+/* ── Result states ── */
+.fu-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 8px;
+  text-align: center;
+}
+
+.fu-result h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.fu-result-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.fu-result-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.fu-result--success .fu-result-icon {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.fu-result--error .fu-result-icon {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.fu-filename {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: #374151;
+  word-break: break-all;
+}
+
+.fu-size {
+  font-size: 0.78rem;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.fu-key-box {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 14px;
+  width: 100%;
+  margin: 8px 0 16px;
+  text-align: left;
+}
+
+.fu-key-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+
+.fu-key {
+  font-size: 0.8rem;
+  color: #374151;
+  word-break: break-all;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+}
+
+.fu-error-msg {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+  max-width: 340px;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 20px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s, transform 0.1s;
+  margin-top: 8px;
+}
+
+.btn:hover { opacity: 0.88; }
+.btn:active { transform: scale(0.97); }
+
+.btn--primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn--secondary {
+  background: #f3f4f6;
+  color: #374151;
+}

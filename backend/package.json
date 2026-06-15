@@ -1,0 +1,14 @@
+{
+  "name": "user-interface-backend",
+  "version": "1.0.0",
+  "description": "Presigned URL generator for S3 uploads",
+  "main": "handler.js",
+  "scripts": {
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "express": "^4.19.2"
+  }
+}
