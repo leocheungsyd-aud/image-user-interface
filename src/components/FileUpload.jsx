@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { authedFetch } from '../auth/authedFetch'
 import './FileUpload.css'
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024 * 1024 // 5 GB
@@ -19,7 +20,7 @@ function formatBytes(bytes) {
 }
 
 async function fetchPresignedUrl(filename, contentType, bucket) {
-  const res = await fetch('/api/presign', {
+  const res = await authedFetch('/api/presign', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filename, contentType, bucket }),

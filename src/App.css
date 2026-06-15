@@ -57,6 +57,45 @@ h1 {
   font-weight: 500;
 }
 
+.header-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.user-label {
+  font-size: 0.8rem;
+  color: #6b7280;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signout-btn {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #6b7280;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+
+.signout-btn:hover {
+  background: #e5e7eb;
+  color: #374151;
+}
+
 /* ── Two-column body ── */
 .card-body {
   display: flex;

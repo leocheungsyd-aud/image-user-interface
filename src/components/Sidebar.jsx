@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { authedFetch } from '../auth/authedFetch'
 import './Sidebar.css'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ export default function Sidebar({ selectedBucket, onSelect }) {
     setBucketsError(null)
 
     try {
-      const r = await fetch('/api/buckets')
+      const r = await authedFetch('/api/buckets')
       if (!r.ok) throw new Error(`Server error: ${r.status}`)
       const { buckets } = await r.json()
       setBuckets(buckets)
@@ -121,7 +122,7 @@ export default function Sidebar({ selectedBucket, onSelect }) {
     const key = nk(bucket, prefix)
     setNodeData((prev) => ({ ...prev, [key]: { loading: true } }))
     try {
-      const r = await fetch(
+      const r = await authedFetch(
         `/api/objects?bucket=${encodeURIComponent(bucket)}&prefix=${encodeURIComponent(prefix)}`,
       )
       if (!r.ok) throw new Error(`Server error: ${r.status}`)

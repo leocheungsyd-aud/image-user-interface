@@ -1,5 +1,6 @@
 const { S3Client, PutObjectCommand, ListBucketsCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3')
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner')
+const { CognitoJwtVerifier } = require('aws-jwt-verify')
 
 const REGION = 'ap-southeast-2'
 const DEFAULT_BUCKET = 'raw-678865629508-ap-southeast-2-an'
@@ -8,14 +9,40 @@ const EXPIRES_IN = 900 // 15 minutes
 
 const s3 = new S3Client({ region: REGION })
 
+// JWT verifier — skipped if Cognito env vars are absent (local dev without auth)
+const verifier =
+  process.env.COGNITO_USER_POOL_ID && process.env.COGNITO_CLIENT_ID
+    ? CognitoJwtVerifier.create({
+        userPoolId: process.env.COGNITO_USER_POOL_ID,
+        clientId: process.env.COGNITO_CLIENT_ID,
+        tokenUse: 'id',
+      })
+    : null
+
+async function verifyToken(authHeader) {
+  if (!verifier) return // auth disabled locally
+  if (!authHeader?.startsWith('Bearer ')) throw Object.assign(new Error('Unauthorized'), { status: 401 })
+  try {
+    await verifier.verify(authHeader.slice(7))
+  } catch {
+    throw Object.assign(new Error('Unauthorized'), { status: 401 })
+  }
+}
+
 function corsHeaders(origin = '*') {
   return {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   }
 }
+
+function authError(origin) {
+  return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Unauthorized' }) }
+}
+
+// ── S3 helpers ───────────────────────────────────────────────────────────────
 
 async function buildPresignedUrl(filename, contentType, bucket = DEFAULT_BUCKET) {
   const safeFilename = filename.replace(/[^a-zA-Z0-9.\-_]/g, '_')
@@ -42,15 +69,22 @@ async function listObjects(bucket, prefix = '') {
   }
 }
 
-// ── Lambda handler ──────────────────────────────────────────────────────────
+// ── Lambda handler ────────────────────────────────────────────────────────────
 exports.handler = async (event) => {
   const origin = event.headers?.origin ?? '*'
   const method = event.httpMethod
   const path = event.path ?? event.rawPath ?? '/'
   const qs = event.queryStringParameters ?? {}
+  const authHeader = event.headers?.Authorization ?? event.headers?.authorization
 
   if (method === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders(origin), body: '' }
+  }
+
+  try {
+    await verifyToken(authHeader)
+  } catch {
+    return authError(origin)
   }
 
   // GET /api/buckets
@@ -85,7 +119,6 @@ exports.handler = async (event) => {
     } catch {
       return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Invalid JSON body' }) }
     }
-
     const { filename, contentType, bucket } = body
     if (!filename || !contentType) {
       return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'filename and contentType are required' }) }
@@ -107,3 +140,4 @@ exports.handler = async (event) => {
 module.exports.buildPresignedUrl = buildPresignedUrl
 module.exports.listBuckets = listBuckets
 module.exports.listObjects = listObjects
+module.exports.verifyToken = verifyToken

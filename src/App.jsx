@@ -1,10 +1,32 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { getCurrentSession, signOut, parseUserFromSession } from './auth/cognito'
+import Login from './components/Login'
 import Sidebar from './components/Sidebar'
 import FileUpload from './components/FileUpload'
 import './App.css'
 
 export default function App() {
+  const [session, setSession] = useState(undefined) // undefined = checking
   const [selectedBucket, setSelectedBucket] = useState(null)
+
+  useEffect(() => {
+    getCurrentSession().then(setSession).catch(() => setSession(null))
+  }, [])
+
+  // Still checking stored session
+  if (session === undefined) return null
+
+  if (!session) {
+    return <Login onLogin={setSession} />
+  }
+
+  const payload = parseUserFromSession(session)
+  const userLabel = payload?.email || payload?.['cognito:username'] || 'User'
+
+  const handleSignOut = () => {
+    signOut()
+    setSession(null)
+  }
 
   return (
     <main className="app">
@@ -17,7 +39,7 @@ export default function App() {
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
           </div>
-          <div>
+          <div className="header-title">
             <h1>ZIP Uploader</h1>
             <p className="subtitle">
               {selectedBucket ? (
@@ -27,11 +49,14 @@ export default function App() {
               )}
             </p>
           </div>
+          <div className="header-user">
+            <span className="user-label">{userLabel}</span>
+            <button className="signout-btn" onClick={handleSignOut}>Sign out</button>
+          </div>
         </div>
 
         <div className="card-body">
           <Sidebar selectedBucket={selectedBucket} onSelect={setSelectedBucket} />
-
           <div className="main-panel">
             {selectedBucket ? (
               <FileUpload key={selectedBucket} bucket={selectedBucket} />
