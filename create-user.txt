@@ -1,3 +1,3 @@
 aws cognito-idp admin-create-user --user-pool-id "ap-southeast-2_99XdZQ9S2" --username "tester" --user-attributes Name="email",Value="user@example.com" Name="email_verified",Value="true" 
 
-aws cognito-idp admin-set-user-password --user-pool-id "ap-southeast-2_99XdZQ9S2" --username "tester" --password "Pass123!" --permanent --region ap-southeast-2
+aws cognito-idp admin-set-user-password --user-pool-id "ap-southeast-2_99XdZQ9S2" --username "tester" --password "Abcd123@" --permanent --region ap-southeast-2 --output json

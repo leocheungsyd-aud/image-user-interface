@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: "ZIP Uploader backend \u2014 Lambda + HTTP API"
+Parameters:
+  CognitoUserPoolId:
+    Type: String
+    Description: Cognito User Pool ID
+  CognitoClientId:
+    Type: String
+    Description: Cognito App Client ID
+  AllowedOrigin:
+    Type: String
+    Description: Frontend origin for CORS (e.g. https://d1abc123.cloudfront.net)
+    Default: https://d3owskim7avwsi.cloudfront.net
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Architectures:
+    - arm64
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        COGNITO_USER_POOL_ID:
+          Ref: CognitoUserPoolId
+        COGNITO_CLIENT_ID:
+          Ref: CognitoClientId
+Resources:
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: zip-uploader-api
+      Handler: handler.handler
+      Policies:
+      - Statement:
+        - Effect: Allow
+          Action:
+          - s3:ListAllMyBuckets
+          - s3:ListBucket
+          - s3:GetObject
+          - s3:PutObject
+          - s3:DeleteObject
+          Resource: '*'
+      Events:
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /api/{proxy+}
+            Method: ANY
+      CodeUri: ApiFunction
+    Metadata:
+      SamResourceId: ApiFunction
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+        - Ref: AllowedOrigin
+        AllowHeaders:
+        - Content-Type
+        - Authorization
+        AllowMethods:
+        - GET
+        - POST
+        - OPTIONS
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com

@@ -1,0 +1,15 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "zip-uploader-backend"
+resolve_s3 = true
+s3_prefix = "zip-uploader-backend"
+region = "ap-southeast-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "CognitoUserPoolId=\"ap-southeast-2_99XdZQ9S2\" CognitoClientId=\"lrfg7mrj937eijp7i89dafagj\" AllowedOrigin=\"https://d3owskim7avwsi.cloudfront.net\""
+image_repositories = []
+
+[default.global.parameters]
+region = "ap-southeast-2"
