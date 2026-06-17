@@ -89,6 +89,7 @@ export default function Login({ onLogin }) {
           </button>
         </form>
       </div>
+      <div className="login-footer">v{import.meta.env.VITE_APP_VERSION}</div>
     </div>
   )
 }

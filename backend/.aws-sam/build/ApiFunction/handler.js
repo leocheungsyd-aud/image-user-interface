@@ -1,11 +1,20 @@
-const { S3Client, PutObjectCommand, ListBucketsCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3')
+const {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+} = require('@aws-sdk/client-s3')
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner')
 const { CognitoJwtVerifier } = require('aws-jwt-verify')
 
 const REGION = 'ap-southeast-2'
-const DEFAULT_BUCKET = 'raw-678865629508-ap-southeast-2-an'
+const ALLOWED_BUCKETS = (process.env.ALLOWED_BUCKETS ?? 'raw-678865629508-ap-southeast-2-an').split(',')
 const PREFIX = 'upload/'
-const EXPIRES_IN = 900 // 15 minutes
+const EXPIRES_IN = 1800 // 30 minutes
 
 const s3 = new S3Client({ region: REGION })
 
@@ -44,7 +53,7 @@ function authError(origin) {
 
 // ── S3 helpers ───────────────────────────────────────────────────────────────
 
-async function buildPresignedUrl(filename, contentType, bucket = DEFAULT_BUCKET) {
+async function buildPresignedUrl(filename, contentType, bucket = ALLOWED_BUCKETS[0]) {
   const safeFilename = filename.replace(/[^a-zA-Z0-9.\-_]/g, '_')
   const key = `${PREFIX}${Date.now()}-${safeFilename}`
   const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType })
@@ -52,9 +61,52 @@ async function buildPresignedUrl(filename, contentType, bucket = DEFAULT_BUCKET)
   return { url, key }
 }
 
+async function createMultipartUpload(filename, contentType, bucket = ALLOWED_BUCKETS[0]) {
+  const safeFilename = filename.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+  const key = `${PREFIX}${Date.now()}-${safeFilename}`
+  const { UploadId } = await s3.send(
+    new CreateMultipartUploadCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
+  )
+  return { uploadId: UploadId, key }
+}
+
+async function presignParts(bucket, key, uploadId, partNumbers) {
+  return Promise.all(
+    partNumbers.map(async (partNumber) => {
+      const url = await getSignedUrl(
+        s3,
+        new UploadPartCommand({ Bucket: bucket, Key: key, UploadId: uploadId, PartNumber: partNumber }),
+        { expiresIn: 3600 },
+      )
+      return { partNumber, url }
+    }),
+  )
+}
+
+async function completeMultipartUpload(bucket, key, uploadId, parts) {
+  await s3.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: bucket,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts.map(({ partNumber, etag }) => ({ PartNumber: partNumber, ETag: etag })) },
+    }),
+  )
+  return { key }
+}
+
+async function abortMultipartUpload(bucket, key, uploadId) {
+  await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId }))
+}
+
+async function buildPresignedDownloadUrl(bucket, key) {
+  const command = new GetObjectCommand({ Bucket: bucket, Key: key })
+  const url = await getSignedUrl(s3, command, { expiresIn: EXPIRES_IN })
+  return { url }
+}
+
 async function listBuckets() {
-  const { Buckets } = await s3.send(new ListBucketsCommand({}))
-  return (Buckets ?? []).map((b) => ({ name: b.Name, createdAt: b.CreationDate }))
+  return ALLOWED_BUCKETS.map((name) => ({ name }))
 }
 
 async function listObjects(bucket, prefix = '') {
@@ -103,6 +155,9 @@ exports.handler = async (event) => {
     if (!bucket) {
       return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'bucket is required' }) }
     }
+    if (!ALLOWED_BUCKETS.includes(bucket)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Bucket not allowed' }) }
+    }
     try {
       return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify(await listObjects(bucket, prefix)) }
     } catch (err) {
@@ -126,6 +181,9 @@ exports.handler = async (event) => {
     if (!filename.toLowerCase().endsWith('.zip')) {
       return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Only .zip files are accepted' }) }
     }
+    if (bucket && !ALLOWED_BUCKETS.includes(bucket)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Bucket not allowed' }) }
+    }
     try {
       return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify(await buildPresignedUrl(filename, contentType, bucket)) }
     } catch (err) {
@@ -134,10 +192,136 @@ exports.handler = async (event) => {
     }
   }
 
+  // GET /api/presign-download?bucket=<name>&key=<key>
+  if (method === 'GET' && path.endsWith('/presign-download')) {
+    const { bucket, key } = qs
+    if (!bucket || !key) {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'bucket and key are required' }) }
+    }
+    if (!ALLOWED_BUCKETS.includes(bucket)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Bucket not allowed' }) }
+    }
+    try {
+      return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify(await buildPresignedDownloadUrl(bucket, key)) }
+    } catch (err) {
+      console.error('Failed to generate download URL', err)
+      return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Failed to generate download URL' }) }
+    }
+  }
+
+  // POST /api/multipart/create
+  if (method === 'POST' && path.endsWith('/multipart/create')) {
+    let body
+    try {
+      body = JSON.parse(event.body || '{}')
+    } catch {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Invalid JSON body' }) }
+    }
+    const { filename, contentType, bucket } = body
+    if (!filename || !contentType) {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'filename and contentType are required' }) }
+    }
+    if (!filename.toLowerCase().endsWith('.zip')) {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Only .zip files are accepted' }) }
+    }
+    if (bucket && !ALLOWED_BUCKETS.includes(bucket)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Bucket not allowed' }) }
+    }
+    try {
+      return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify(await createMultipartUpload(filename, contentType, bucket)) }
+    } catch (err) {
+      console.error('Failed to create multipart upload', err)
+      return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Failed to create multipart upload' }) }
+    }
+  }
+
+  // POST /api/multipart/presign-parts
+  if (method === 'POST' && path.endsWith('/multipart/presign-parts')) {
+    let body
+    try {
+      body = JSON.parse(event.body || '{}')
+    } catch {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Invalid JSON body' }) }
+    }
+    const { key, bucket, uploadId, partNumbers } = body
+    if (!key || !bucket || !uploadId || !Array.isArray(partNumbers) || partNumbers.length === 0) {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'key, bucket, uploadId, and partNumbers are required' }) }
+    }
+    if (!ALLOWED_BUCKETS.includes(bucket)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Bucket not allowed' }) }
+    }
+    if (!key.startsWith(PREFIX)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Invalid key' }) }
+    }
+    try {
+      const parts = await presignParts(bucket, key, uploadId, partNumbers)
+      return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ parts }) }
+    } catch (err) {
+      console.error('Failed to presign parts', err)
+      return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Failed to presign parts' }) }
+    }
+  }
+
+  // POST /api/multipart/complete
+  if (method === 'POST' && path.endsWith('/multipart/complete')) {
+    let body
+    try {
+      body = JSON.parse(event.body || '{}')
+    } catch {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Invalid JSON body' }) }
+    }
+    const { key, bucket, uploadId, parts } = body
+    if (!key || !bucket || !uploadId || !Array.isArray(parts) || parts.length === 0) {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'key, bucket, uploadId, and parts are required' }) }
+    }
+    if (!ALLOWED_BUCKETS.includes(bucket)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Bucket not allowed' }) }
+    }
+    if (!key.startsWith(PREFIX)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Invalid key' }) }
+    }
+    try {
+      return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify(await completeMultipartUpload(bucket, key, uploadId, parts)) }
+    } catch (err) {
+      console.error('Failed to complete multipart upload', err)
+      return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Failed to complete multipart upload' }) }
+    }
+  }
+
+  // POST /api/multipart/abort
+  if (method === 'POST' && path.endsWith('/multipart/abort')) {
+    let body
+    try {
+      body = JSON.parse(event.body || '{}')
+    } catch {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Invalid JSON body' }) }
+    }
+    const { key, bucket, uploadId } = body
+    if (!key || !bucket || !uploadId) {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ error: 'key, bucket, and uploadId are required' }) }
+    }
+    if (!ALLOWED_BUCKETS.includes(bucket)) {
+      return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Bucket not allowed' }) }
+    }
+    try {
+      await abortMultipartUpload(bucket, key, uploadId)
+      return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ ok: true }) }
+    } catch (err) {
+      console.error('Failed to abort multipart upload', err)
+      return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Failed to abort multipart upload' }) }
+    }
+  }
+
   return { statusCode: 404, headers: corsHeaders(origin), body: JSON.stringify({ error: 'Not found' }) }
 }
 
 module.exports.buildPresignedUrl = buildPresignedUrl
+module.exports.buildPresignedDownloadUrl = buildPresignedDownloadUrl
 module.exports.listBuckets = listBuckets
 module.exports.listObjects = listObjects
 module.exports.verifyToken = verifyToken
+module.exports.ALLOWED_BUCKETS = ALLOWED_BUCKETS
+module.exports.createMultipartUpload = createMultipartUpload
+module.exports.presignParts = presignParts
+module.exports.completeMultipartUpload = completeMultipartUpload
+module.exports.abortMultipartUpload = abortMultipartUpload

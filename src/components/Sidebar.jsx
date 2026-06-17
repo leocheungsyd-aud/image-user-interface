@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useTransition } from 'react'
 import { authedFetch } from '../auth/authedFetch'
 import './Sidebar.css'
 
@@ -96,6 +96,7 @@ export default function Sidebar({ selectedBucket, onSelect }) {
   const [nodeData, setNodeData] = useState({})
   const expandedRef = useRef(expanded)
   expandedRef.current = expanded
+  const [downloadingKey, setDownloadingKey] = useState(null)
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -167,6 +168,26 @@ export default function Sidebar({ selectedBucket, onSelect }) {
     })
   }, [loadNode])
 
+  // ── Download ──────────────────────────────────────────────────────────────
+
+  const downloadFile = useCallback(async (bucket, key) => {
+    if (downloadingKey) return
+    setDownloadingKey(key)
+    try {
+      const r = await authedFetch(`/api/presign-download?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}`)
+      if (!r.ok) throw new Error(`Server error: ${r.status}`)
+      const { url } = await r.json()
+      const a = document.createElement('a')
+      a.href = url
+      a.download = key.split('/').pop()
+      a.click()
+    } catch (e) {
+      alert(`Download failed: ${e.message}`)
+    } finally {
+      setDownloadingKey(null)
+    }
+  }, [downloadingKey])
+
   // ── Renderers ──────────────────────────────────────────────────────────────
 
   function renderChildren(bucket, prefix, depth) {
@@ -217,18 +238,23 @@ export default function Sidebar({ selectedBucket, onSelect }) {
             </div>
           )
         })}
-        {objects.map((o) => (
-          <div
-            key={o.key}
-            className="tree-row tree-row--file"
-            style={{ paddingLeft: `${depth * 14 + 22}px` }}
-            title={o.key}
-          >
-            <FileIcon />
-            <span className="tree-label">{lastName(o.key)}</span>
-            <span className="tree-size">{formatBytes(o.size)}</span>
-          </div>
-        ))}
+        {objects.map((o) => {
+          const isDownloading = downloadingKey === o.key
+          return (
+            <button
+              key={o.key}
+              className={`tree-row tree-row--file${isDownloading ? ' tree-row--downloading' : ''}`}
+              style={{ paddingLeft: `${depth * 14 + 22}px` }}
+              title={`Click to download ${o.key}`}
+              onClick={() => downloadFile(bucket, o.key)}
+              disabled={!!downloadingKey}
+            >
+              {isDownloading ? <Spinner /> : <FileIcon />}
+              <span className="tree-label">{lastName(o.key)}</span>
+              <span className="tree-size">{formatBytes(o.size)}</span>
+            </button>
+          )
+        })}
       </>
     )
   }

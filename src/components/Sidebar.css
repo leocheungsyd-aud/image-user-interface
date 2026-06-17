@@ -153,12 +153,28 @@
 
 /* files are divs, not buttons */
 .tree-row--file {
-  cursor: default;
+  cursor: pointer;
   gap: 5px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
 }
 
 .tree-row--file:hover {
-  background: #f9fafb;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.tree-row--file:hover .tree-icon--file {
+  stroke: #2563eb;
+}
+
+.tree-row--downloading {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 /* ── Chevron ── */

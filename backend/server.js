@@ -6,7 +6,18 @@
  * Omit them to skip auth (useful for local dev).
  */
 const express = require('express')
-const { buildPresignedUrl, listBuckets, listObjects, verifyToken } = require('./handler')
+const {
+  buildPresignedUrl,
+  buildPresignedDownloadUrl,
+  listBuckets,
+  listObjects,
+  verifyToken,
+  ALLOWED_BUCKETS,
+  createMultipartUpload,
+  presignParts,
+  completeMultipartUpload,
+  abortMultipartUpload,
+} = require('./handler')
 
 const PORT = process.env.PORT || 3001
 
@@ -46,11 +57,23 @@ app.get('/api/buckets', async (_, res) => {
 app.get('/api/objects', async (req, res) => {
   const { bucket, prefix = '' } = req.query
   if (!bucket) return res.status(400).json({ error: 'bucket is required' })
+  if (!ALLOWED_BUCKETS.includes(bucket)) return res.status(403).json({ error: 'Bucket not allowed' })
   try {
     res.json(await listObjects(bucket, prefix))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Failed to list objects' })
+  }
+})
+
+app.get('/api/presign-download', async (req, res) => {
+  const { bucket, key } = req.query
+  if (!bucket || !key) return res.status(400).json({ error: 'bucket and key are required' })
+  try {
+    res.json(await buildPresignedDownloadUrl(bucket, key))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to generate download URL' })
   }
 })
 
@@ -62,11 +85,68 @@ app.post('/api/presign', async (req, res) => {
   if (!filename.toLowerCase().endsWith('.zip')) {
     return res.status(400).json({ error: 'Only .zip files are accepted' })
   }
+  if (bucket && !ALLOWED_BUCKETS.includes(bucket)) return res.status(403).json({ error: 'Bucket not allowed' })
   try {
     res.json(await buildPresignedUrl(filename, contentType, bucket))
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Failed to generate upload URL' })
+  }
+})
+
+app.post('/api/multipart/create', async (req, res) => {
+  const { filename, contentType, bucket } = req.body ?? {}
+  if (!filename || !contentType) return res.status(400).json({ error: 'filename and contentType are required' })
+  if (!filename.toLowerCase().endsWith('.zip')) return res.status(400).json({ error: 'Only .zip files are accepted' })
+  if (bucket && !ALLOWED_BUCKETS.includes(bucket)) return res.status(403).json({ error: 'Bucket not allowed' })
+  try {
+    res.json(await createMultipartUpload(filename, contentType, bucket))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to create multipart upload' })
+  }
+})
+
+app.post('/api/multipart/presign-parts', async (req, res) => {
+  const { key, bucket, uploadId, partNumbers } = req.body ?? {}
+  if (!key || !bucket || !uploadId || !Array.isArray(partNumbers) || partNumbers.length === 0) {
+    return res.status(400).json({ error: 'key, bucket, uploadId, and partNumbers are required' })
+  }
+  if (!ALLOWED_BUCKETS.includes(bucket)) return res.status(403).json({ error: 'Bucket not allowed' })
+  if (!key.startsWith('upload/')) return res.status(403).json({ error: 'Invalid key' })
+  try {
+    res.json({ parts: await presignParts(bucket, key, uploadId, partNumbers) })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to presign parts' })
+  }
+})
+
+app.post('/api/multipart/complete', async (req, res) => {
+  const { key, bucket, uploadId, parts } = req.body ?? {}
+  if (!key || !bucket || !uploadId || !Array.isArray(parts) || parts.length === 0) {
+    return res.status(400).json({ error: 'key, bucket, uploadId, and parts are required' })
+  }
+  if (!ALLOWED_BUCKETS.includes(bucket)) return res.status(403).json({ error: 'Bucket not allowed' })
+  if (!key.startsWith('upload/')) return res.status(403).json({ error: 'Invalid key' })
+  try {
+    res.json(await completeMultipartUpload(bucket, key, uploadId, parts))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to complete multipart upload' })
+  }
+})
+
+app.post('/api/multipart/abort', async (req, res) => {
+  const { key, bucket, uploadId } = req.body ?? {}
+  if (!key || !bucket || !uploadId) return res.status(400).json({ error: 'key, bucket, and uploadId are required' })
+  if (!ALLOWED_BUCKETS.includes(bucket)) return res.status(403).json({ error: 'Bucket not allowed' })
+  try {
+    await abortMultipartUpload(bucket, key, uploadId)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Failed to abort multipart upload' })
   }
 })
 

@@ -72,6 +72,7 @@ export default function App() {
             )}
           </div>
         </div>
+        <div className="card-footer">v{import.meta.env.VITE_APP_VERSION}</div>
       </div>
     </main>
   )
