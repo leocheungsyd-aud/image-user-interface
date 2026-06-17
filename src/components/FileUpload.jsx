@@ -3,6 +3,9 @@ import { authedFetch } from '../auth/authedFetch'
 import './FileUpload.css'
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024 * 1024 // 5 GB
+const CHUNK_SIZE = 50 * 1024 * 1024 // 50 MB per part
+const MULTIPART_THRESHOLD = 100 * 1024 * 1024 // use multipart for files > 100 MB
+const UPLOAD_CONCURRENCY = 3
 
 const STATES = {
   IDLE: 'idle',
@@ -19,17 +22,78 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`
 }
 
-async function fetchPresignedUrl(filename, contentType, bucket) {
-  const res = await authedFetch('/api/presign', {
+async function apiPost(path, body) {
+  const res = await authedFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename, contentType, bucket }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) {
     const { error } = await res.json().catch(() => ({}))
     throw new Error(error || `Server error: ${res.status}`)
   }
-  return res.json() // { url, key }
+  return res.json()
+}
+
+async function fetchPresignedUrl(filename, contentType, bucket) {
+  return apiPost('/api/presign', { filename, contentType, bucket }) // { url, key }
+}
+
+function uploadPartXhr(url, chunk, onChunkProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) onChunkProgress(e.loaded)
+    })
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.getResponseHeader('ETag'))
+      else reject(new Error(`Part upload failed: ${xhr.status}`))
+    })
+    xhr.addEventListener('error', () => reject(new Error('Network error during part upload')))
+    xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
+    xhr.send(chunk)
+  })
+}
+
+async function uploadMultipart(file, bucket, onProgress) {
+  const totalParts = Math.ceil(file.size / CHUNK_SIZE)
+  const partNumbers = Array.from({ length: totalParts }, (_, i) => i + 1)
+
+  const { uploadId, key } = await apiPost('/api/multipart/create', {
+    filename: file.name,
+    contentType: file.type || 'application/zip',
+    bucket,
+  })
+
+  try {
+    const { parts } = await apiPost('/api/multipart/presign-parts', { key, bucket, uploadId, partNumbers })
+
+    const uploadedBytes = new Array(totalParts).fill(0)
+    const completedParts = new Array(totalParts)
+    const queue = [...parts]
+
+    async function drainQueue() {
+      while (queue.length > 0) {
+        const { partNumber, url } = queue.shift()
+        const start = (partNumber - 1) * CHUNK_SIZE
+        const chunk = file.slice(start, Math.min(start + CHUNK_SIZE, file.size))
+        const etag = await uploadPartXhr(url, chunk, (loaded) => {
+          uploadedBytes[partNumber - 1] = loaded
+          onProgress(Math.round(uploadedBytes.reduce((a, b) => a + b, 0) / file.size * 100))
+        })
+        completedParts[partNumber - 1] = { partNumber, etag }
+      }
+    }
+
+    await Promise.all(Array.from({ length: UPLOAD_CONCURRENCY }, drainQueue))
+
+    await apiPost('/api/multipart/complete', { key, bucket, uploadId, parts: completedParts })
+    return key
+  } catch (err) {
+    apiPost('/api/multipart/abort', { key, bucket, uploadId }).catch(() => {})
+    throw err
+  }
 }
 
 function uploadToS3(presignedUrl, file, onProgress) {
@@ -47,7 +111,7 @@ function uploadToS3(presignedUrl, file, onProgress) {
       else reject(new Error(`S3 upload failed: ${xhr.status}`))
     })
 
-    xhr.addEventListener('error', () => reject(new Error('Network error during upload')))
+    xhr.addEventListener('error', () => reject(new Error(`Network error during upload (status: ${xhr.status}, readyState: ${xhr.readyState})`)))
     xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
 
     xhr.send(file)
@@ -87,15 +151,21 @@ export default function FileUpload({ bucket }) {
     setStatus(STATES.UPLOADING)
 
     try {
-      const { url, key } = await fetchPresignedUrl(f.name, f.type || 'application/zip', bucket)
-      await uploadToS3(url, f, setProgress)
+      let key
+      if (f.size > MULTIPART_THRESHOLD) {
+        key = await uploadMultipart(f, bucket, setProgress)
+      } else {
+        const { url, key: singleKey } = await fetchPresignedUrl(f.name, f.type || 'application/zip', bucket)
+        await uploadToS3(url, f, setProgress)
+        key = singleKey
+      }
       setS3Key(key)
       setStatus(STATES.SUCCESS)
     } catch (e) {
       setErrorMessage(e.message)
       setStatus(STATES.ERROR)
     }
-  }, [])
+  }, [bucket])
 
   const handleDrop = useCallback(
     (e) => {

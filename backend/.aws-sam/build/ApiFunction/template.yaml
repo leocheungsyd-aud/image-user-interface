@@ -18,12 +18,13 @@ Globals:
   Function:
     Runtime: nodejs20.x
     Architectures: [arm64]
-    Timeout: 30
+    Timeout: 60
     MemorySize: 256
     Environment:
       Variables:
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
         COGNITO_CLIENT_ID: !Ref CognitoClientId
+        ALLOWED_BUCKETS: 'raw-678865629508-ap-southeast-2-an'
 
 Resources:
   ApiFunction:
@@ -35,7 +36,6 @@ Resources:
         - Statement:
             - Effect: Allow
               Action:
-                - s3:ListAllMyBuckets
                 - s3:ListBucket
                 - s3:GetObject
                 - s3:PutObject
